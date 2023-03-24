@@ -20425,7 +20425,7 @@ sub _create_foreign_server
 	}
 
 	# Check if the server already exists or need to be created
-	$sth = $self->{dbhdest}->prepare("SELECT * FROM pg_foreign_server WHERE srvname=?") or $self->logit("FATAL: " . $self->{dbhdest}->errstr . "\n", 0, 1);
+	$sth = $self->{dbhdest}->prepare("SELECT * FROM pg_foreign_server WHERE srvname ILIKE ?") or $self->logit("FATAL1: " . $self->{dbhdest}->errstr . "\n", 0, 1);
 	$sth->execute($self->{fdw_server}) or $self->logit("FATAL: " . $self->{dbhdest}->errstr . "\n", 0, 1);
 	$row = $sth->fetch;
 	$sth->finish;
@@ -20438,6 +20438,14 @@ sub _create_foreign_server
 			if (!$@) {
 				$self->{oracle_user} = $self->_ask_username('Oracle') unless (defined $self->{oracle_user});
 				$self->{oracle_pwd} = $self->_ask_password('Oracle') unless ($self->{oracle_user} eq '/');
+			}
+		} else {
+			## Allows for wallet entry
+			if ($self->{oracle_pwd} eq "''" || $self->{oracle_pwd} eq "\"\"") {
+				$self->{oracle_pwd}=""
+			}
+			if ($self->{oracle_user} eq "''" || $self->{oracle_user} eq "\"\"") {
+				$self->{oracle_user}=""
 			}
 		}
 		my $ora_session_mode = ($self->{oracle_user} eq "/" || $self->{oracle_user} eq "sys") ? 2 : undef;
@@ -20458,15 +20466,29 @@ sub _create_foreign_server
 		}
 		else
 		{
-			$self->{oracle_dsn} =~ /host=([^;]+)/;
-			my $host = $1 || 'localhost';
-			$self->{oracle_dsn} =~ /port=(\d+)/;
-			my $port = $1 || ((!$self->{is_mysql}) ? 1521 : 3306);
+			my $host = '';
+			if ($self->{oracle_dsn} =~ /host=([^;]+)/) {
+				$self->{oracle_dsn} =~ /host=([^;]+)/;
+				$host = $1 || 'localhost';
+			}
+			my $port = '';
+			if ($self->{oracle_dsn} =~ /port=(\d+)/) {
+				$self->{oracle_dsn} =~ /port=(\d+)/;
+				$port = $1 || ((!$self->{is_mysql}) ? 1521 : 3306);
+			}
 			my $sid = '';
 			if (!$self->{is_mysql}) {
-				$self->{oracle_dsn} =~ /(service_name|sid)=([^;]+)/;
-				$sid = $2 || '';
-				$self->{oracle_fwd_dsn} = "dbserver '//$host:$port/$sid'";
+				if ($self->{oracle_dsn} =~ /(service_name|sid)=([^;]+)/) {
+					$self->{oracle_dsn} =~ /(service_name|sid)=([^;]+)/;
+					$sid = $2 || '';
+				}
+				if ($host ne "" && $port ne "" && $sid ne "") {
+					$self->{oracle_fwd_dsn} = "dbserver '//$host:$port/$sid'";
+				} else {
+					$self->{oracle_dsn} =~ /dbi:Oracle:([^;]+)/;
+					my $server = $1;
+					$self->{oracle_fwd_dsn} = "dbserver '$server'";
+				}
 			} else {
 				$extension = 'mysql_fdw';
 				$self->{oracle_dsn} =~ /(database)=([^;]+)/;
